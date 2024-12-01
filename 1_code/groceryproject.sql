@@ -2,8 +2,8 @@
 -- version 5.2.1
 -- https://www.phpmyadmin.net/
 --
--- Host: 127.0.0.1
--- Generation Time: Nov 02, 2024 at 08:53 AM
+-- Host: localhost
+-- Generation Time: Dec 01, 2024 at 10:15 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -20,6 +20,69 @@ SET time_zone = "+00:00";
 --
 -- Database: `groceryproject`
 --
+
+DELIMITER $$
+--
+-- Procedures
+--
+CREATE DEFINER=`root`@`localhost` PROCEDURE `AdjustStock` (IN `productId` INT, IN `location` ENUM('sales_floor','reserve'), IN `quantityChange` INT)   BEGIN
+    DECLARE current_reserve_quantity INT;
+
+    -- If restocking sales floor
+    IF location = 'sales_floor' AND quantityChange > 0 THEN
+        -- Get the current reserve stock
+        SELECT quantity INTO current_reserve_quantity
+        FROM Stock
+        WHERE product_id = productId AND location = 'reserve';
+
+        -- If there isn't enough stock, throw an error
+        IF current_reserve_quantity < quantityChange THEN
+            SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Not enough stock in reserve to fulfill this transfer to sales floor.';
+        END IF;
+
+        UPDATE Stock
+        SET quantity = quantity + quantityChange
+        WHERE product_id = productId AND location = 'sales_floor';
+
+        -- Subtract from reserve stock
+        UPDATE Stock
+        SET quantity = quantity - quantityChange
+        WHERE product_id = productId AND location = 'reserve';
+
+        -- Log the restock
+        INSERT INTO RestockLog (product_id, location, quantity_added, updated_at)
+        VALUES (productId, 'sales_floor', quantityChange, NOW());
+    END IF;
+
+    -- If restocking reserve
+    IF location = 'reserve' AND quantityChange > 0 THEN
+        UPDATE Stock
+        SET quantity = quantity + quantityChange
+        WHERE product_id = productId AND location = 'reserve';
+
+        -- Log the restock
+        INSERT INTO RestockLog (product_id, location, quantity_added, updated_at)
+        VALUES (productId, 'reserve', quantityChange, NOW());
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- --------------------------------------------------------
+
+--
+-- Stand-in structure for view `betterrestocklog`
+-- (See below for the actual view)
+--
+CREATE TABLE `betterrestocklog` (
+`log_id` int(11)
+,`product_id` int(11)
+,`name` varchar(100)
+,`location` enum('sales_floor','reserve')
+,`quantity_added` int(11)
+,`updated_at` timestamp
+);
 
 -- --------------------------------------------------------
 
@@ -89,6 +152,27 @@ CREATE TABLE `productstockoverview` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `restocklog`
+--
+
+CREATE TABLE `restocklog` (
+  `log_id` int(11) NOT NULL,
+  `product_id` int(11) NOT NULL,
+  `location` enum('sales_floor','reserve') NOT NULL,
+  `quantity_added` int(11) NOT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `restocklog`
+--
+
+INSERT INTO `restocklog` (`log_id`, `product_id`, `location`, `quantity_added`, `updated_at`) VALUES
+(2, 1, 'sales_floor', 10, '2024-12-01 09:10:36');
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `stock`
 --
 
@@ -105,8 +189,8 @@ CREATE TABLE `stock` (
 --
 
 INSERT INTO `stock` (`stock_id`, `product_id`, `location`, `quantity`, `last_updated`) VALUES
-(1, 1, 'sales_floor', 20, '2024-10-30 05:43:54'),
-(2, 1, 'reserve', 50, '2024-10-30 05:43:54'),
+(1, 1, 'sales_floor', 30, '2024-12-01 09:10:36'),
+(2, 1, 'reserve', 60, '2024-12-01 09:10:36'),
 (3, 2, 'sales_floor', 15, '2024-10-30 05:43:54'),
 (4, 2, 'reserve', 30, '2024-10-30 05:43:54'),
 (5, 3, 'sales_floor', 40, '2024-10-30 05:43:54'),
@@ -115,6 +199,15 @@ INSERT INTO `stock` (`stock_id`, `product_id`, `location`, `quantity`, `last_upd
 (8, 4, 'reserve', 60, '2024-10-30 05:43:54'),
 (9, 5, 'sales_floor', 10, '2024-10-30 05:43:54'),
 (10, 5, 'reserve', 20, '2024-10-30 05:43:54');
+
+-- --------------------------------------------------------
+
+--
+-- Structure for view `betterrestocklog`
+--
+DROP TABLE IF EXISTS `betterrestocklog`;
+
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `betterrestocklog`  AS SELECT `rl`.`log_id` AS `log_id`, `rl`.`product_id` AS `product_id`, `p`.`name` AS `name`, `rl`.`location` AS `location`, `rl`.`quantity_added` AS `quantity_added`, `rl`.`updated_at` AS `updated_at` FROM (`restocklog` `rl` join `products` `p` on(`rl`.`product_id` = `p`.`product_id`)) ;
 
 -- --------------------------------------------------------
 
@@ -144,6 +237,13 @@ ALTER TABLE `products`
   ADD KEY `category_id` (`category_id`);
 
 --
+-- Indexes for table `restocklog`
+--
+ALTER TABLE `restocklog`
+  ADD PRIMARY KEY (`log_id`),
+  ADD KEY `product_id` (`product_id`);
+
+--
 -- Indexes for table `stock`
 --
 ALTER TABLE `stock`
@@ -167,6 +267,12 @@ ALTER TABLE `products`
   MODIFY `product_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
+-- AUTO_INCREMENT for table `restocklog`
+--
+ALTER TABLE `restocklog`
+  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+
+--
 -- AUTO_INCREMENT for table `stock`
 --
 ALTER TABLE `stock`
@@ -181,6 +287,12 @@ ALTER TABLE `stock`
 --
 ALTER TABLE `products`
   ADD CONSTRAINT `products_ibfk_1` FOREIGN KEY (`category_id`) REFERENCES `categories` (`category_id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `restocklog`
+--
+ALTER TABLE `restocklog`
+  ADD CONSTRAINT `restocklog_ibfk_1` FOREIGN KEY (`product_id`) REFERENCES `products` (`product_id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `stock`

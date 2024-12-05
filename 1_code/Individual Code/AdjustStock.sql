@@ -3,14 +3,15 @@ DELIMITER //
 CREATE PROCEDURE AdjustStock(
     IN productId INT,
     IN location ENUM('sales_floor', 'reserve'),
-    IN quantityChange INT
+    IN quantityChange INT,
+    IN reasonId INT
 )
 BEGIN
     DECLARE current_reserve_quantity INT;
 
     -- If restocking sales floor
     IF location = 'sales_floor' AND quantityChange > 0 THEN
-        -- Get the current reserve stock
+        -- Get current reserve stock
         SELECT quantity INTO current_reserve_quantity
         FROM Stock
         WHERE product_id = productId AND location = 'reserve';
@@ -31,19 +32,20 @@ BEGIN
         WHERE product_id = productId AND location = 'reserve';
 
         -- Log the restock
-        INSERT INTO RestockLog (product_id, location, quantity_added, updated_at)
-        VALUES (productId, 'sales_floor', quantityChange, NOW());
+        INSERT INTO RestockLog (product_id, location, quantity_added, reason_id, updated_at)
+        VALUES (productId, 'sales_floor', quantityChange, reasonId, NOW());
     END IF;
 
     -- If restocking reserve
     IF location = 'reserve' AND quantityChange > 0 THEN
+        -- Update reserve stock
         UPDATE Stock
         SET quantity = quantity + quantityChange
         WHERE product_id = productId AND location = 'reserve';
 
         -- Log the restock
-        INSERT INTO RestockLog (product_id, location, quantity_added, updated_at)
-        VALUES (productId, 'reserve', quantityChange, NOW());
+        INSERT INTO RestockLog (product_id, location, quantity_added, reason_id, updated_at)
+        VALUES (productId, 'reserve', quantityChange, reasonId, NOW());
     END IF;
 END;
 //

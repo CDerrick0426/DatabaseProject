@@ -5,9 +5,9 @@ from datetime import datetime
 # Database connection settings
 DBConfig = {
     'host': 'localhost',
-    'user': 'root',
+    'user': 'root', # Insert MySQL username. "root" is default.
     'password': 'password', # Insert your password
-    'database': 'groceryproject'
+    'database': 'groceryproject' # Insert database name
 }
 
 def restockSummary():
